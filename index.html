@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Urban Air Quality Assistant: check AQI, get health advice for your group, and track your readings. Works offline.">
+<title>Urban Air Quality Assistant</title>
+<style>
+:root{
+  --bg:#eef7f0; --surface:#ffffff; --text:#14281b; --muted:#4a5f50; --primary:#1b6b35; --primary-text:#ffffff;
+  --border:#cfe3d4; --focus:#0b57d0;
+  --good:#1b7f3b; --moderate:#8a6d00; --sensitive:#b35400; --unhealthy:#b3261e; --very:#7b1fa2; --hazard:#5d1049;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0f1a13; --surface:#18271d; --text:#e8f3ea; --muted:#a9bfae; --primary:#5fcf80; --primary-text:#0b1a10; --border:#2c4233; --focus:#8ab4ff;
+  --good:#6fe08f; --moderate:#f2cf4a; --sensitive:#ffa24d; --unhealthy:#ff8a80; --very:#e1a0f0; --hazard:#f59bd6;}
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+.skip{position:absolute;left:-999px;top:0;background:var(--primary);color:var(--primary-text);padding:10px 14px;z-index:10}
+.skip:focus{left:8px;top:8px}
+header{padding:28px 16px 8px;text-align:center}
+h1{margin:0 0 6px;font-size:clamp(1.6rem,4vw,2.4rem)}
+header p{margin:0 auto;max-width:640px;color:var(--muted)}
+nav{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:14px 12px}
+nav a{color:var(--text);text-decoration:none;border:1px solid var(--border);background:var(--surface);padding:8px 14px;border-radius:999px;font-weight:600}
+nav a:hover{border-color:var(--primary)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+main{max-width:960px;margin:0 auto;padding:8px 16px 40px;display:grid;gap:18px}
+section{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px}
+h2{margin:0 0 12px;font-size:1.3rem}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.field{display:flex;flex-direction:column;gap:4px;flex:1 1 180px}
+label{font-weight:600}
+input,select{padding:11px;border:1px solid var(--border);border-radius:8px;font-size:1rem;background:var(--bg);color:var(--text)}
+button{padding:11px 20px;border:0;border-radius:8px;background:var(--primary);color:var(--primary-text);font-size:1rem;font-weight:700;cursor:pointer}
+button.secondary{background:transparent;color:var(--text);border:1px solid var(--border)}
+.hint{color:var(--muted);font-size:.9rem;margin:6px 0 0}
+.error{color:var(--unhealthy);font-weight:600;min-height:1.4em;margin:8px 0 0}
+.result{margin-top:16px;border-left:8px solid var(--border);padding:12px 16px;border-radius:8px;background:var(--bg)}
+.result h3{margin:0 0 4px;font-size:1.4rem}
+.gauge{height:14px;border-radius:7px;margin-top:14px;background:linear-gradient(90deg,#2e9e4f 0 16%,#e6c200 16% 33%,#f08a24 33% 50%,#d93a2f 50% 66%,#8e24aa 66% 83%,#6a1b4d 83% 100%);position:relative}
+.gauge span{position:absolute;top:-5px;width:6px;height:24px;background:var(--text);border-radius:3px;transform:translateX(-50%);transition:left .3s}
+ul.advice{padding-left:20px;margin:8px 0}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--border)}
+caption{text-align:left;font-weight:700;padding-bottom:8px}
+.tablewrap{overflow-x:auto}
+.cat-good{color:var(--good)}.cat-moderate{color:var(--moderate)}.cat-sensitive{color:var(--sensitive)}
+.cat-unhealthy{color:var(--unhealthy)}.cat-very{color:var(--very)}.cat-hazard{color:var(--hazard)}
+.bars{display:flex;align-items:flex-end;gap:6px;height:140px;margin-top:10px;padding:8px 4px;border-bottom:2px solid var(--border)}
+.bar{flex:1;min-width:14px;border-radius:4px 4px 0 0;background:var(--primary);position:relative}
+footer{text-align:center;color:var(--muted);padding:20px 16px 40px;font-size:.9rem}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#checker">Skip to AQI checker</a>
+
+<header>
+  <h1><span aria-hidden="true">🌿</span> Urban Air Quality Assistant</h1>
+  <p>Enter an AQI reading to get an instant category, personalised health advice, and a simple history of your checks.</p>
+</header>
+
+<nav aria-label="Page sections">
+  <a href="#checker">AQI Checker</a>
+  <a href="#history">History</a>
+  <a href="#scale">AQI Scale</a>
+  <a href="#tips">Daily Tips</a>
+  <a href="#about">About</a>
+</nav>
+
+<main id="main">
+
+<section id="checker" aria-labelledby="h-checker">
+  <h2 id="h-checker">📊 AQI Checker</h2>
+  <div class="row">
+    <div class="field">
+      <label for="aqi">AQI value (0–500)</label>
+      <input id="aqi" type="number" inputmode="numeric" min="0" max="500" step="1" aria-describedby="aqi-hint aqi-error" placeholder="e.g. 135">
+    </div>
+    <div class="field">
+      <label for="group">Who is this advice for?</label>
+      <select id="group">
+        <option value="general">General public</option>
+        <option value="children">Children</option>
+        <option value="elderly">Elderly</option>
+        <option value="respiratory">Asthma / heart / lung conditions</option>
+        <option value="outdoor">Outdoor workers / athletes</option>
+      </select>
+    </div>
+    <div class="field" style="flex:0 0 auto">
+      <label for="place">Place (optional)</label>
+      <input id="place" type="text" maxlength="40" placeholder="e.g. Hyderabad">
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button id="analyze" type="button">Analyze</button>
+    <button id="sample" type="button" class="secondary">Try a sample value</button>
+  </div>
+  <p id="aqi-hint" class="hint">Use the AQI shown by your local pollution board or weather app.</p>
+  <p id="aqi-error" class="error" role="alert"></p>
+
+  <div id="result" class="result" aria-live="polite" hidden>
+    <h3 id="r-title"></h3>
+    <p id="r-desc"></p>
+    <div class="gauge" aria-hidden="true"><span id="marker" style="left:0"></span></div>
+    <h4 style="margin:16px 0 0">Recommended actions</h4>
+    <ul id="r-advice" class="advice"></ul>
+  </div>
+</section>
+
+<section id="history" aria-labelledby="h-history">
+  <h2 id="h-history">🕒 Your Recent Checks</h2>
+  <p id="h-empty" class="hint">No checks yet. Analyze an AQI value to start your history.</p>
+  <div id="h-wrap" hidden>
+    <div class="bars" id="bars" role="img" aria-label="Bar chart of recent AQI readings"></div>
+    <div class="tablewrap">
+      <table>
+        <caption>Last 10 readings (stored only on this device)</caption>
+        <thead><tr><th scope="col">Time</th><th scope="col">Place</th><th scope="col">AQI</th><th scope="col">Category</th></tr></thead>
+        <tbody id="h-body"></tbody>
+      </table>
+    </div>
+    <p><button id="clear" type="button" class="secondary">Clear history</button></p>
+  </div>
+</section>
+
+<section id="scale" aria-labelledby="h-scale">
+  <h2 id="h-scale">🎨 AQI Scale</h2>
+  <div class="tablewrap">
+    <table>
+      <caption>Standard AQI categories</caption>
+      <thead><tr><th scope="col">AQI</th><th scope="col">Category</th><th scope="col">Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>0–50</td><td class="cat-good">Good</td><td>Air quality is satisfactory.</td></tr>
+        <tr><td>51–100</td><td class="cat-moderate">Moderate</td><td>Acceptable; very sensitive people may be affected.</td></tr>
+        <tr><td>101–150</td><td class="cat-sensitive">Unhealthy for Sensitive Groups</td><td>Children, elderly, and people with lung/heart disease are at risk.</td></tr>
+        <tr><td>151–200</td><td class="cat-unhealthy">Unhealthy</td><td>Everyone may begin to feel health effects.</td></tr>
+        <tr><td>201–300</td><td class="cat-very">Very Unhealthy</td><td>Health alert: serious effects for everyone.</td></tr>
+        <tr><td>301–500</td><td class="cat-hazard">Hazardous</td><td>Emergency conditions; avoid all outdoor exposure.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="tips" aria-labelledby="h-tips">
+  <h2 id="h-tips">💚 Everyday Clean-Air Tips</h2>
+  <ul class="advice">
+    <li>Check the AQI before outdoor exercise; plan activity for cleaner hours.</li>
+    <li>Keep windows closed during peak pollution; ventilate when AQI is low.</li>
+    <li>Use an N95/FFP2 mask outdoors when AQI is above 150.</li>
+    <li>Use public transport, carpool, or cycle to cut urban emissions.</li>
+    <li>Stay hydrated and avoid burning waste or smoking indoors.</li>
+  </ul>
+</section>
+
+<section id="about" aria-labelledby="h-about">
+  <h2 id="h-about">🏙️ About</h2>
+  <p>Urban Air Quality Assistant is a lightweight, rule-based web app that helps citizens understand air pollution and make safer outdoor decisions. It runs fully offline in your browser with no API keys, no tracking, and no data sent to any server.</p>
+  <p class="hint">Health guidance is general information, not medical advice. Consult a doctor for personal health concerns.</p>
+</section>
+
+</main>
+
+<footer>Urban Air Quality Assistant · Built for Hack2skill · Accessible, responsive, offline-first</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var CATEGORIES = [
+    { max: 50,  key: "good",      name: "Good",                           color: "var(--good)",      desc: "Air quality is satisfactory and poses little or no risk." },
+    { max: 100, key: "moderate",  name: "Moderate",                       color: "var(--moderate)",  desc: "Air quality is acceptable, but very sensitive people may notice effects." },
+    { max: 150, key: "sensitive", name: "Unhealthy for Sensitive Groups", color: "var(--sensitive)", desc: "Sensitive groups may experience health effects; most people are fine." },
+    { max: 200, key: "unhealthy", name: "Unhealthy",                      color: "var(--unhealthy)", desc: "Everyone may begin to experience health effects." },
+    { max: 300, key: "very",      name: "Very Unhealthy",                 color: "var(--very)",      desc: "Health alert: everyone may experience serious effects." },
+    { max: 500, key: "hazard",    name: "Hazardous",                      color: "var(--hazard)",    desc: "Emergency conditions: the entire population is likely affected." }
+  ];
+
+  var BASE_ADVICE = {
+    good:      ["Enjoy outdoor activities as usual.", "Good time to open windows and ventilate your home."],
+    moderate:  ["Outdoor activity is fine for most people.", "Unusually sensitive people should reduce long, heavy exertion."],
+    sensitive: ["Reduce prolonged outdoor exertion.", "Consider a well-fitted N95 mask if you must be outside.", "Keep windows closed during peak traffic hours."],
+    unhealthy: ["Avoid long outdoor activity; move workouts indoors.", "Wear an N95/FFP2 mask outdoors.", "Run an air purifier indoors if available."],
+    very:      ["Stay indoors with windows and doors closed.", "Use an air purifier and wear an N95 mask if you must go out.", "Postpone outdoor exercise and travel where possible."],
+    hazard:    ["Stay indoors and avoid all outdoor exposure.", "Seal gaps, use a HEPA purifier, and wear an N95 if going out is essential.", "Seek medical help if you have breathing difficulty, chest pain, or dizziness."]
+  };
+
+  var GROUP_ADVICE = {
+    general: [],
+    children:    { from: 2, text: "Children breathe faster and are more vulnerable: limit outdoor play and school sports." },
+    elderly:     { from: 2, text: "Older adults should limit outdoor trips and watch for fatigue or breathlessness." },
+    respiratory: { from: 1, text: "Keep prescribed inhalers or medicines within reach and follow your doctor's action plan." },
+    outdoor:     { from: 2, text: "Reduce exertion, take frequent breaks indoors, and wear a respirator-grade mask." }
+  };
+
+  var KEY = "uaqa_history_v1";
+  var $ = function (id) { return document.getElementById(id); };
+
+  function categoryFor(aqi) {
+    for (var i = 0; i < CATEGORIES.length; i++) { if (aqi <= CATEGORIES[i].max) { return i; } }
+    return CATEGORIES.length - 1;
+  }
+
+  function load() {
+    try { var v = JSON.parse(localStorage.getItem(KEY) || "[]"); return Array.isArray(v) ? v : []; }
+    catch (e) { return []; }
+  }
+  function save(list) {
+    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) { /* storage unavailable: app still works */ }
+  }
+
+  var memory = load();
+
+  function render() {
+    var list = memory;
+    $("h-empty").hidden = list.length > 0;
+    $("h-wrap").hidden = list.length === 0;
+    var body = $("h-body"), bars = $("bars");
+    body.textContent = ""; bars.textContent = "";
+    list.slice().reverse().forEach(function (r) {
+      var tr = document.createElement("tr");
+      [new Date(r.t).toLocaleString(), r.place || "—", String(r.aqi), r.cat].forEach(function (txt) {
+        var td = document.createElement("td"); td.textContent = txt; tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    list.forEach(function (r) {
+      var b = document.createElement("div");
+      b.className = "bar";
+      b.style.height = Math.max(4, Math.min(100, r.aqi / 5)) + "%";
+      b.style.background = CATEGORIES[categoryFor(r.aqi)].color;
+      b.title = "AQI " + r.aqi;
+      bars.appendChild(b);
+    });
+    bars.setAttribute("aria-label", "Bar chart of recent AQI readings: " + list.map(function (r) { return r.aqi; }).join(", "));
+  }
+
+  function analyze() {
+    var err = $("aqi-error"), res = $("result");
+    var raw = $("aqi").value.trim();
+    var aqi = Number(raw);
+    err.textContent = "";
+    if (raw === "" || !isFinite(aqi) || aqi < 0 || aqi > 500 || Math.floor(aqi) !== aqi) {
+      res.hidden = true;
+      err.textContent = "Please enter a whole number between 0 and 500.";
+      $("aqi").setAttribute("aria-invalid", "true");
+      $("aqi").focus();
+      return;
+    }
+    $("aqi").removeAttribute("aria-invalid");
+
+    var idx = categoryFor(aqi), cat = CATEGORIES[idx];
+    var place = $("place").value.trim().slice(0, 40);
+    $("r-title").textContent = (place ? place + ": " : "") + "AQI " + aqi + " · " + cat.name;
+    $("r-desc").textContent = cat.desc;
+    res.style.borderLeftColor = cat.color;
+    $("r-title").style.color = cat.color;
+    $("marker").style.left = Math.min(100, aqi / 5) + "%";
+
+    var ul = $("r-advice"); ul.textContent = "";
+    var items = BASE_ADVICE[cat.key].slice();
+    var g = GROUP_ADVICE[$("group").value];
+    if (g && g.text && idx >= g.from) { items.unshift(g.text); }
+    items.forEach(function (t) { var li = document.createElement("li"); li.textContent = t; ul.appendChild(li); });
+    res.hidden = false;
+
+    memory.push({ t: Date.now(), aqi: aqi, place: place, cat: cat.name });
+    memory = memory.slice(-10);
+    save(memory);
+    render();
+  }
+
+  $("analyze").addEventListener("click", analyze);
+  $("aqi").addEventListener("keydown", function (e) { if (e.key === "Enter") { analyze(); } });
+  $("sample").addEventListener("click", function () {
+    $("aqi").value = [42, 87, 135, 178, 245, 340][Math.floor(Math.random() * 6)];
+    analyze();
+  });
+  $("clear").addEventListener("click", function () { memory = []; save(memory); render(); });
+
+  render();
+})();
+</script>
+</body>
+</html>
